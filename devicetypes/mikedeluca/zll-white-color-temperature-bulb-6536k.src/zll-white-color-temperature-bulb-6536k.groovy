@@ -77,6 +77,10 @@ private getMOVE_TO_COLOR_TEMPERATURE_COMMAND() { 0x0A }
 private getCOLOR_CONTROL_CLUSTER() { 0x0300 }
 private getATTRIBUTE_COLOR_TEMPERATURE() { 0x0007 }
 
+def initialize() {
+    state.lastTemperature = 6536
+}
+
 // Parse incoming device messages to generate events
 def parse(String description) {
     log.debug "description is $description"
@@ -100,7 +104,11 @@ def off() {
 }
 
 def on() {
-    zigbee.on() + ["delay 1500"] + zigbee.onOffRefresh()
+	def lastTemp = state.lastTemperature
+	def tempInMired = (1000000 / lastTemp) as Integer
+    def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
+    
+    zigbee.on() + zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") + ["delay 1000"] + zigbee.onOffRefresh() + zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE)
 }
 
 def blink(times = 1) {
@@ -135,7 +143,11 @@ def both() {
 }
 
 def setLevel(value) {
-    zigbee.setLevel(value) + zigbee.onOffRefresh() + zigbee.levelRefresh() + ["delay 1500"] + zigbee.onOffRefresh()
+	def lastTemp = state.lastTemperature
+	def tempInMired = (1000000 / lastTemp) as Integer
+    def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
+
+    zigbee.setLevel(value) + zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") + ["delay 1000"] + zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE) + zigbee.levelRefresh() + zigbee.onOffRefresh()
 }
 
 def refresh() {
@@ -193,9 +205,10 @@ def updated() {
 def setColorTemperature(value) {
     setGenericName(value)
     value = value as Integer
+    state.lastTemperature = value
     def tempInMired = (1000000 / value) as Integer
     def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
-
+    
     zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") +
     zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE)
 }
