@@ -136,7 +136,7 @@ def dimToOff(rate) {
     rate = rate as Integer
 
     // get the current level and compute the time to MIN_VISIBLE_BRIGHTNESS
-    def currentLevel = device.currentState("level").value as Integer
+    def currentLevel = (device.currentState("level") != null) ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
     def effectiveRate = (rate * Math.abs(currentLevel - MIN_VISIBLE_BRIGHTNESS)/MAX_BRIGHTNESS)
     
     // compute an adjusted rate (discovered through trial and error)
@@ -217,14 +217,14 @@ def setLevel(value, rate) {
     } else {
     	// get the stateful temp or default and check if temp needs to be reset
         def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
-    	def currentTemp = device.currentState("colorTemperature").value as Integer
+    	def currentTemp = device.currentState("colorTemperature") != null ? device.currentState("colorTemperature").value as Integer : MAX_TEMP
+        
+        // get the current level and compute effective dim rate
+        def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
+        def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
         
         if (Math.abs(currentTemp - lastTemp) <= TEMP_ERROR_BUFFER) {
-        	// get the current level and compute effective dim rate
-            def currentLevel = device.currentState("level").value as Integer
-            def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
-
-            zigbee.setLevel(value, effectiveRate) +
+        	zigbee.setLevel(value, effectiveRate) +
             ["delay 1000"] +
             zigbee.levelRefresh() +
             zigbee.onOffRefresh()
@@ -232,10 +232,6 @@ def setLevel(value, rate) {
         	// convert temp to mired and prep hex for setting temp
             def tempInMired = (MIRED_NUMERATOR / lastTemp) as Integer
             def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
-
-            // get the current level and compute effective dim rate
-            def currentLevel = device.currentState("level").value as Integer
-            def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
 
             zigbee.setLevel(value, effectiveRate) +
             zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") +
@@ -326,7 +322,7 @@ def setColorTemperature(value) {
     def colorTempRate = state.colorTempRate != null ? state.colorTempRate : MIN_TEMP_RATE
     
     // get the current temp and compute effective temp rate as hex
-    def currentColorTemp = device.currentState("colorTemperature").value as Integer
+    def currentColorTemp = device.currentState("colorTemperature") != null ? device.currentState("colorTemperature").value as Integer : MAX_TEMP
     def effectiveRate = (colorTempRate * Math.abs(currentColorTemp - value)/TEMP_RANGE) as Integer
     def finalRateHex = zigbee.swapEndianHex(zigbee.convertToHexString(effectiveRate, 4))
 
