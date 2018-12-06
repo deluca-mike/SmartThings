@@ -13,7 +13,22 @@
  */
 import groovy.transform.Field
 
+// Custom Globals
 @Field Boolean hasConfiguredHealthCheck = false
+@Field Integer MIN_TEMP = 2703
+@Field Integer MAX_TEMP = 5051
+@Field Integer MIN_BRIGHTNESS = 0
+@Field Integer MIN_VISIBLE_BRIGHTNESS = 1
+@Field Integer MAX_BRIGHTNESS = 100
+@Field Integer MIRED_NUMERATOR = 1000000
+@Field Integer MIN_LEVEL_RATE = 0
+@Field Integer MAX_LEVEL_RATE = 100
+@Field Integer MIN_TEMP_RATE = 0
+@Field Integer MAX_TEMP_RATE = 100
+@Field Integer TEMP_RANGE = (MAX_TEMP - MIN_TEMP) as Integer
+@Field Integer HEALTH_CHECK_INTERVAL_MINUTES = 12
+@Field float RATE_ADJUSTMENT_FACTOR = 0.4
+@Field Integer TEMP_ERROR_BUFFER = 50
 
 metadata {
     definition (name: "ZLL White Color Temperature Bulb 5051K", namespace: "mikedeluca", author: "MichaelDeLuca", ocfDeviceType: "oic.d.light") {
@@ -59,22 +74,19 @@ metadata {
             state "default", label: "", action: "refresh.refresh", icon: "st.secondary.refresh"
         }
 
-        controlTile("colorTempSliderControl", "device.colorTemperature", "slider", width: 2, height: 2, inactiveLabel: false, range:"(2703..5051)") {
+        controlTile("colorTempSliderControl", "device.colorTemperature", "slider", width: 2, height: 2, inactiveLabel: false, range:"($MIN_TEMP..$MAX_TEMP)") {
             state "colorTemperature", action: "color temperature.setColorTemperature"
         }
         
         standardTile("alert", "device.alert", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
             state "default", label: "Alert", action: "blink"
         }
-//        valueTile("colorName", "device.colorName", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-//            state "colorName", label: '${currentValue}'
-//        }
 
-		controlTile("levelRateSliderControl", "device.levelRate", "slider", width: 2, height: 2, inactiveLabel: false, range:"(0..100)") {
+		controlTile("levelRateSliderControl", "device.levelRate", "slider", width: 2, height: 2, inactiveLabel: false, range:"($MIN_LEVEL_RATE..$MAX_LEVEL_RATE)") {
             state "levelRate", action: "setLevelRate"
         }
         
-        controlTile("colorTempRateSliderControl", "device.colorTempRate", "slider", width: 2, height: 2, inactiveLabel: false, range:"(0..1000)") {
+        controlTile("colorTempRateSliderControl", "device.colorTempRate", "slider", width: 2, height: 2, inactiveLabel: false, range:"($MIN_TEMP_RATE..$MAX_TEMP_RATE)") {
             state "colorTempRate", action: "setColorTempRate"
         }
 
@@ -89,7 +101,8 @@ private getCOLOR_CONTROL_CLUSTER() { 0x0300 }
 private getATTRIBUTE_COLOR_TEMPERATURE() { 0x0007 }
 
 def initialize() {
-    state.lastTemperature = 6536
+    state.lastTemperature = MAX_TEMP
+    state.levelRate = MIN_LEVEL_RATE
 }
 
 // Parse incoming device messages to generate events
@@ -111,19 +124,54 @@ def parse(String description) {
 
 def off() {
 	stopBlinking()
-    zigbee.off() + ["delay 1500"] + zigbee.onOffRefresh()
+    
+    // use stateful rate or min rate
+    def rate = (state.levelRate != null) ?  state.levelRate : MIN_LEVEL_RATE
+    
+    dimToOff(rate)
+}
+
+def dimToOff(rate) {
+	// sanitize inputs
+    rate = rate as Integer
+
+    // get the current level and compute the time to MIN_VISIBLE_BRIGHTNESS
+    def currentLevel = device.currentState("level").value as Integer
+    def effectiveRate = (rate * Math.abs(currentLevel - MIN_VISIBLE_BRIGHTNESS)/MAX_BRIGHTNESS)
+    
+    // compute an adjusted rate (discovered through trial and error)
+    def adjustment = 1 + RATE_ADJUSTMENT_FACTOR - (currentLevel*RATE_ADJUSTMENT_FACTOR)/MAX_BRIGHTNESS
+    def adjustedRate = (effectiveRate*adjustment) as Integer
+    
+    // sanitize effectiveRate result
+    effectiveRate = effectiveRate as Integer
+    
+    // convert from tenths of a second to milliseconds
+    adjustedRate = (adjustedRate * 100) as Integer
+    
+    // first dim to MIN_VISIBLE_BRIGHTNESS then off the light after the calculated adjusted wait period
+    zigbee.setLevel(MIN_VISIBLE_BRIGHTNESS, effectiveRate) +
+    ["delay $adjustedRate"] +
+    zigbee.off() +
+    ["delay 1000"] +
+    zigbee.levelRefresh() +
+    zigbee.onOffRefresh()
 }
 
 def on() {
-    def lastTemp = state.lastTemperature
-    def tempInMired = (1000000 / lastTemp) as Integer
+	def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
+    def tempInMired = (MIRED_NUMERATOR / lastTemp) as Integer
     def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
     
-    zigbee.on() + zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") + ["delay 1000"] + zigbee.onOffRefresh() + zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE)
+    zigbee.on() +
+    zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") +
+    ["delay 1000"] +
+    zigbee.onOffRefresh() +
+    zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE)
 }
 
 def blink(times = 1) {
-    def payload = zigbee.swapEndianHex(zigbee.convertToHexString(times + 1, 4))
+    def payload = zigbee.swapEndianHex(zigbee.convertToHexString(times, 4))
     zigbee.command(0x0003, 0x00, payload)
 }
 
@@ -145,39 +193,58 @@ def siren() {
 
 // This is a hack to get 3 notification types. This will blink 3 times.
 def strobe() {
-	blink(1000)
+	blink(3)
 }
 
-// This is a hack to get 3 notification types. This will blink 5 times.
+// This is a hack to get 3 notification types. This will stop blinking.
 def both() {
 	stopBlinking()
 }
 
 def setLevel(value) {
-	def levelRate = 0;
-    if (state.levelRate != null) {
-    	levelRate = state.levelRate
-    }
+	// use stateful rate or min rate given none specified
+    def levelRate = (state.levelRate != null) ?  state.levelRate : MIN_LEVEL_RATE
     setLevel(value, levelRate)
 }
 
 def setLevel(value, rate) {
-	def lastTemp = state.lastTemperature
-    def tempInMired = (1000000 / lastTemp) as Integer
-    def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
-
+	// sanitize inputs
 	value = value as Integer
-	def levelRate = 0 as Integer;
-    if (rate != null) {
-    	levelRate = rate as Integer
-    } else if (state.levelRate != null) {
-    	levelRate = state.levelRate as Integer
-    }
+    rate = rate as Integer
     
-    def currentLevel = device.currentState("level").value as Integer
-    def effectiveRate = levelRate * Math.abs(currentLevel - value)/100
-    effectiveRate = effectiveRate as Integer
-    zigbee.setLevel(value, effectiveRate) + zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") + ["delay 1000"] + zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE) + zigbee.levelRefresh() + zigbee.onOffRefresh()
+    if (value == 0) {
+    	dimToOff(rate)
+    } else {
+    	// get the stateful temp or default and check if temp needs to be reset
+        def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
+    	def currentTemp = device.currentState("colorTemperature").value as Integer
+        
+        if (Math.abs(currentTemp - lastTemp) <= TEMP_ERROR_BUFFER) {
+        	// get the current level and compute effective dim rate
+            def currentLevel = device.currentState("level").value as Integer
+            def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
+
+            zigbee.setLevel(value, effectiveRate) +
+            ["delay 1000"] +
+            zigbee.levelRefresh() +
+            zigbee.onOffRefresh()
+        } else {
+        	// convert temp to mired and prep hex for setting temp
+            def tempInMired = (MIRED_NUMERATOR / lastTemp) as Integer
+            def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
+
+            // get the current level and compute effective dim rate
+            def currentLevel = device.currentState("level").value as Integer
+            def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
+
+            zigbee.setLevel(value, effectiveRate) +
+            zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") +
+            zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE) +
+            ["delay 1000"] +
+            zigbee.levelRefresh() +
+            zigbee.onOffRefresh()
+        }
+    }
 }
 
 def setLevelRate(value) {
@@ -201,9 +268,7 @@ def poll() {
     zigbee.onOffRefresh() + zigbee.levelRefresh() + zigbee.colorTemperatureRefresh()
 }
 
-/**
- * PING is used by Device-Watch in attempt to reach the Device
- * */
+// PING is used by Device-Watch in attempt to reach the Device
 def ping() {
     return zigbee.levelRefresh()
 }
@@ -215,7 +280,7 @@ def healthPoll() {
 }
 
 def configureHealthCheck() {
-    Integer hcIntervalMinutes = 12
+    Integer hcIntervalMinutes = HEALTH_CHECK_INTERVAL_MINUTES
     if (!hasConfiguredHealthCheck) {
         log.debug "Configuring Health Check, Reporting"
         unschedule("healthPoll")
@@ -236,29 +301,33 @@ def configure() {
 def updated() {
     log.debug "updated()"
     if (state.levelRate == null) {
-    	state.levelRate = 0
+    	state.levelRate = MIN_LEVEL_RATE
     }
     if (state.colorTempRate == null) {
-    	state.colorTempRate = 0
+    	state.colorTempRate = MIN_TEMP_RATE
     }
     configureHealthCheck()
 }
 
 def setColorTemperature(value) {
-    setGenericName(value)
+	// sanitize inputs
     value = value as Integer
+    
+    setGenericName(value)
+    
+    // update stateful temp even if light is off
     state.lastTemperature = value
-    def tempInMired = (1000000 / value) as Integer
+    
+    // Convert to mired
+    def tempInMired = (MIRED_NUMERATOR / value) as Integer
     def finalTempHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
     
-    def colorTempRate = 0 as Integer;
-    if (state.colorTempRate != null) {
-    	colorTempRate = state.colorTempRate as Integer
-    }
-    def currentColorTemp = device.currentState("colorTemperature").value as Integer
-    def effectiveRate = colorTempRate * Math.abs(currentColorTemp - value)/2348	// 2348 = 5051K - 2703K
-    effectiveRate = effectiveRate as Integer
+	// get the stateful tempRate or default
+    def colorTempRate = state.colorTempRate != null ? state.colorTempRate : MIN_TEMP_RATE
     
+    // get the current temp and compute effective temp rate as hex
+    def currentColorTemp = device.currentState("colorTemperature").value as Integer
+    def effectiveRate = (colorTempRate * Math.abs(currentColorTemp - value)/TEMP_RANGE) as Integer
     def finalRateHex = zigbee.swapEndianHex(zigbee.convertToHexString(effectiveRate, 4))
 
     zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalTempHex $finalRateHex") +
@@ -271,10 +340,10 @@ def setColorTempRate(value) {
     sendEvent(name: "colorTempRate", value: value)
 }
 
-//Naming based on the wiki article here: http://en.wikipedia.org/wiki/Color_temperature
-//Also naming from https://www.philips.co.in/c-m-li/long-lasting-led-lights/warm-white-led-bulbs#slide_White_(3000K)
-//And here https://inspectapedia.com/electric/Bulb_Color_Temperatures.php
-//But at the end of the day, I am making this match Google Home's implementation, by trial and error
+// Naming based on the wiki article here: http://en.wikipedia.org/wiki/Color_temperature
+// Also naming from https://www.philips.co.in/c-m-li/long-lasting-led-lights/warm-white-led-bulbs#slide_White_(3000K)
+// And here https://inspectapedia.com/electric/Bulb_Color_Temperatures.php
+// But at the end of the day, I am making this match Google Home's implementation, by trial and error
 def setGenericName(value){
     if (value != null) {
         def genericName = ""
