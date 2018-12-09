@@ -125,7 +125,7 @@ def parse(String description) {
 }
 
 def off() {
-	stopBlinking()
+    stopBlinking()
     
     // use stateful rate or min rate
     def rate = (state.levelRate != null) ?  state.levelRate : MIN_LEVEL_RATE
@@ -137,27 +137,31 @@ def dimToOff(rate) {
 	// sanitize inputs
     rate = rate as Integer
 
-    // get the current level and compute the time to MIN_VISIBLE_BRIGHTNESS
+    // get the current level
     def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
-    def effectiveRate = (rate * Math.abs(currentLevel - MIN_VISIBLE_BRIGHTNESS)/MAX_BRIGHTNESS)
     
-    // compute an adjusted rate (discovered through trial and error)
-    def adjustment = 1 + RATE_ADJUSTMENT_FACTOR - (currentLevel*RATE_ADJUSTMENT_FACTOR)/MAX_BRIGHTNESS
-    def adjustedRate = (effectiveRate*adjustment) as Integer
+    if (currentLevel > 0 && device.currentState("switch").value == "on") {
+    	//compute the time to MIN_VISIBLE_BRIGHTNESS
+    	def effectiveRate = (rate * Math.abs(currentLevel - MIN_VISIBLE_BRIGHTNESS)/MAX_BRIGHTNESS)
     
-    // sanitize effectiveRate result
-    effectiveRate = effectiveRate as Integer
-    
-    // convert from tenths of a second to milliseconds
-    adjustedRate = (adjustedRate * 100) as Integer
-    
-    // first dim to MIN_VISIBLE_BRIGHTNESS then off the light after the calculated adjusted wait period
-    zigbee.setLevel(MIN_VISIBLE_BRIGHTNESS, effectiveRate) +
-    ["delay $adjustedRate"] +
-    zigbee.off() +
-    ["delay 1000"] +
-    zigbee.levelRefresh() +
-    zigbee.onOffRefresh()
+        // compute an adjusted rate (discovered through trial and error)
+        def adjustment = 1 + RATE_ADJUSTMENT_FACTOR - (currentLevel*RATE_ADJUSTMENT_FACTOR)/MAX_BRIGHTNESS
+        def adjustedRate = (effectiveRate*adjustment) as Integer
+
+        // sanitize effectiveRate result
+        effectiveRate = effectiveRate as Integer
+
+        // convert from tenths of a second to milliseconds
+        adjustedRate = (adjustedRate * 100) as Integer
+
+        // first dim to MIN_VISIBLE_BRIGHTNESS then off the light after the calculated adjusted wait period
+        zigbee.setLevel(MIN_VISIBLE_BRIGHTNESS, effectiveRate) +
+        ["delay $adjustedRate"] +
+        zigbee.off() +
+        ["delay 1000"] +
+        zigbee.levelRefresh() +
+        zigbee.onOffRefresh()
+    }
 }
 
 def on() {
@@ -207,17 +211,19 @@ def setLevel(value, rate) {
 	value = value as Integer
     rate = rate as Integer
     
+    // get the current level
+    def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
+    
     if (value == 0) {
     	dimToOff(rate)
-    } else {
+    } else if (value != currentLevel) {
     	state.lastLevel = value
     	
     	// get the stateful temp or default and check if temp needs to be reset
         def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
     	def currentTemp = device.currentState("colorTemperature") != null ? device.currentState("colorTemperature").value as Integer : MAX_TEMP
         
-        // get the current level and compute effective dim rate
-        def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
+        // compute effective dim rate
         def effectiveRate = (rate * Math.abs(currentLevel - value)/MAX_BRIGHTNESS) as Integer
         
         if (Math.abs(currentTemp - lastTemp) <= TEMP_ERROR_BUFFER) {
