@@ -101,8 +101,10 @@ private getCOLOR_CONTROL_CLUSTER() { 0x0300 }
 private getATTRIBUTE_COLOR_TEMPERATURE() { 0x0007 }
 
 def initialize() {
+    state.lastLevel = MIN_BRIGHTNESS
     state.lastTemperature = MAX_TEMP
     state.levelRate = MIN_LEVEL_RATE
+    state.colorTempRate = MIN_TEMP_RATE
 }
 
 // Parse incoming device messages to generate events
@@ -159,15 +161,8 @@ def dimToOff(rate) {
 }
 
 def on() {
-	def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
-    def tempInMired = (MIRED_NUMERATOR / lastTemp) as Integer
-    def finalHex = zigbee.swapEndianHex(zigbee.convertToHexString(tempInMired, 4))
-    
-    zigbee.on() +
-    zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_COLOR_TEMPERATURE_COMMAND, "$finalHex 0000") +
-    ["delay 1000"] +
-    zigbee.onOffRefresh() +
-    zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_COLOR_TEMPERATURE)
+	def lastLevel = (state.lastLevel != null) ? state.lastLevel : MIN_BRIGHTNESS
+	setLevel(lastLevel)
 }
 
 def blink(times = 1) {
@@ -215,6 +210,8 @@ def setLevel(value, rate) {
     if (value == 0) {
     	dimToOff(rate)
     } else {
+    	state.lastLevel = value
+    	
     	// get the stateful temp or default and check if temp needs to be reset
         def lastTemp = (state.lastTemperature != null) ? state.lastTemperature : MAX_TEMP
     	def currentTemp = device.currentState("colorTemperature") != null ? device.currentState("colorTemperature").value as Integer : MAX_TEMP
@@ -296,8 +293,14 @@ def configure() {
 
 def updated() {
     log.debug "updated()"
+    if (state.lastLevel == null) {
+    	state.lastLevel = MIN_BRIGHTNESS
+    }
     if (state.levelRate == null) {
     	state.levelRate = MIN_LEVEL_RATE
+    }
+    if (state.lastTemperature == null) {
+    	state.lastTemperature = MIN_TEMP
     }
     if (state.colorTempRate == null) {
     	state.colorTempRate = MIN_TEMP_RATE
