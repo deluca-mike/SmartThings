@@ -101,7 +101,7 @@ private getCOLOR_CONTROL_CLUSTER() { 0x0300 }
 private getATTRIBUTE_COLOR_TEMPERATURE() { 0x0007 }
 
 def initialize() {
-    state.lastLevel = MIN_BRIGHTNESS
+    state.lastLevel = MIN_VISIBLE_BRIGHTNESS
     state.lastTemperature = MAX_TEMP
     state.levelRate = MIN_LEVEL_RATE
     state.colorTempRate = MIN_TEMP_RATE
@@ -161,7 +161,7 @@ def dimToOff(rate) {
 }
 
 def on() {
-	def lastLevel = (state.lastLevel != null) ? state.lastLevel : MIN_BRIGHTNESS
+	def lastLevel = (state.lastLevel != null) ? state.lastLevel : MIN_VISIBLE_BRIGHTNESS
 	setLevel(lastLevel)
 }
 
@@ -294,7 +294,7 @@ def configure() {
 def updated() {
     log.debug "updated()"
     if (state.lastLevel == null) {
-    	state.lastLevel = MIN_BRIGHTNESS
+    	state.lastLevel = MIN_VISIBLE_BRIGHTNESS
     }
     if (state.levelRate == null) {
     	state.levelRate = MIN_LEVEL_RATE
