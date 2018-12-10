@@ -216,7 +216,7 @@ def setLevel(value, rate) {
     
     if (value == 0) {
     	dimToOff(rate)
-    } else if (value != currentLevel) {
+    } else {
     	state.lastLevel = value
     	
     	// get the stateful temp or default and check if temp needs to be reset
