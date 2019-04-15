@@ -211,10 +211,16 @@ def setLevel(value, rate) {
 	value = value as Integer
     rate = rate as Integer
     
+    if (value > MAX_BRIGHTNESS) {
+    	value = MAX_BRIGHTNESS
+    } else if (value < MIN_BRIGHTNESS) {
+    	value = MIN_BRIGHTNESS
+    }
+    
     // get the current level
     def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
     
-    if (value == 0) {
+    if (value == MIN_BRIGHTNESS) {
     	dimToOff(rate)
     } else {
     	state.lastLevel = value
@@ -318,6 +324,12 @@ def setColorTemperature(value) {
 	// sanitize inputs
     value = value as Integer
     
+    if (value > MAX_TEMP) {
+    	value = MAX_TEMP
+    } else if (value < MIN_TEMP) {
+    	value = MIN_TEMP
+    }
+    
     setGenericName(value)
     
     // update stateful temp even if light is off
@@ -352,16 +364,18 @@ def setColorTempRate(value) {
 def setGenericName(value){
     if (value != null) {
         def genericName = ""
-        if (value <= 2703) {
-            genericName = "Candlelight"
+        if (value <= 2710) {
+            genericName = "Candlelight/Incandescent"
         } else if (value <= 3003) {
-            genericName = "Soft White"
+            genericName = "Warm/Soft White"
         } else if (value <= 4000) {
             genericName = "Cool White"
         } else if (value <= 4115) {
             genericName = "Moonlight"
         } else if (value <= 5000) {
             genericName = "Daylight"
+        } else if (value <= 6024) {
+            genericName = "Ivory"
         } else {
             genericName = "Bright White"
         }
