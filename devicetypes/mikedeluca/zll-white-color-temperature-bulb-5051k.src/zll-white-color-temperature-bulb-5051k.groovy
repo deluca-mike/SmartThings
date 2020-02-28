@@ -15,7 +15,7 @@ import groovy.transform.Field
 
 // Custom Globals
 @Field Boolean hasConfiguredHealthCheck = false
-@Field Integer MIN_TEMP = 2703
+@Field Integer MIN_TEMP = 2710
 @Field Integer MAX_TEMP = 5051
 @Field Integer MIN_BRIGHTNESS = 0
 @Field Integer MIN_VISIBLE_BRIGHTNESS = 1
@@ -125,12 +125,9 @@ def parse(String description) {
 }
 
 def off() {
+	// If issues conitnue, consider removing the stopBlinking line
     stopBlinking()
-    
-    // use stateful rate or min rate
-    def rate = (state.levelRate != null) ?  state.levelRate : MIN_LEVEL_RATE
-    
-    dimToOff(rate)
+    zigbee.off() + ["delay 1000"] + zigbee.levelRefresh() + zigbee.onOffRefresh()
 }
 
 def dimToOff(rate) {
@@ -221,7 +218,7 @@ def setLevel(value, rate) {
     def currentLevel = device.currentState("level") != null ? device.currentState("level").value as Integer : MAX_BRIGHTNESS
     
     if (value == MIN_BRIGHTNESS) {
-    	dimToOff(rate)
+    	off()
     } else {
     	state.lastLevel = value
     	
